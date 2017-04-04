@@ -1,0 +1,320 @@
+#Import de donn�es 
+setwd("C:/Users/Ahmed/Desktop/Restos/TableP")
+familles = read.csv("familles.csv",header = TRUE, fill = TRUE , sep = ";")
+demande = read.csv("demande.csv",header = TRUE, fill = TRUE , sep = ";")
+
+#Liste de personnes hors bar�me --> Comparer personnes accept�es aux personnes non accept�es
+#Premi�re aproche: faire un arbre de d�cision sur les donn�es qu'on a --> pour l'instant que sur la table demande
+phorsb = demande[demande$EcartBaremeEndet > 0,]
+phorsb = phorsb[typeof(phorsb$IdFamille)=="integer"]
+
+#Mise en forme des donn�es:
+
+phorsb$RessouTot[is.na(phorsb$RessouTot)] = 0
+phorsb$RessourcesDispo[is.na(phorsb$RessourcesDispo)] = 0
+phorsb$RessourcesDispoEnd[is.na(phorsb$RessourcesDispoEnd)] = 0
+phorsb$RessoucesDedChEnd[is.na(phorsb$RessoucesDedChEnd)] = 0
+phorsb$MensualitesRetenues[is.na(phorsb$MensualitesRetenues)] = 0
+phorsb$ChargesTot[is.na(phorsb$ChargesTot)] = 0
+phorsb$AutresChargesMensuellesCommunes[is.na(phorsb$AutresChargesMensuellesCommunes)] = 0
+phorsb$Compbb06[is.na(phorsb$Compbb06)] = 0
+phorsb$Compbb612[is.na(phorsb$Compbb612)] = 0
+phorsb$Compbb1218[is.na(phorsb$Compbb1218)] = 0
+
+#on enleve les lignes o� le Statut de la d�cision ne vaut rien
+row_to_keep=!(is.na(phorsb$Statut))
+phorsb=phorsb[row_to_keep,]
+
+
+
+#Mise en place du syst�me de classification 
+levels(phorsb$Statut)[1:6] = 1
+levels(phorsb$Statut)[2] = 0
+
+
+#Nombre de personnes par famille:
+person = read.csv("person.csv" , fill = TRUE , header = TRUE , sep=";")
+#on affecte � chaque famille de phorsb le Nombre de personnes
+for(i in 1:length(phorsb$IdFamille) ){
+  phorsb$NbPersonnes[i] = dim(person[person$KPFI_SerNo==phorsb$IdFamille[i],])[1]
+}
+
+
+#Calcul de corr�lations : 
+v=as.vector(phorsb$Statut)
+v=as.numeric(v)
+cor(phorsb$NbPersonnes,v)
+
+
+#Colonnes avec b�b� ou non 
+dummybb = 1:length(phorsb$IdFamille)
+for (i in 1:length(phorsb$IdFamille)){
+  
+  dummybb[i] = max(c(phorsb$Compbb06[i],phorsb$Compbb1218[i],phorsb$Compbb612[i]))
+  dummybb[i] = min(c(dummybb[i],1))
+  
+}
+phorsb = data.frame(phorsb,dummybb)
+
+#Corr�lation entre b�b�s et acceptation/refus
+cor(phorsb$dummybb,v)
+
+
+#Col avec centre par famille et type de logement (remis en forme)
+dfint = data.frame(familles$IdFamille , familles$Centre , familles$Logement , familles$NomAD)
+levels(dfint$familles.Logement)[1:6]=0
+levels(dfint$familles.Logement)[2]=1
+levels(dfint$familles.Logement)[3]=2
+levels(dfint$familles.Logement)[4]=3
+levels(dfint$familles.Logement)[5]=4
+dfint[is.na(dfint)] = 0
+
+for (i in 1:length(levels(dfint$familles.NomAD))){
+  levels(dfint$familles.NomAD)[i] = i
+}
+
+
+phorsba = merge(phorsb,dfint,by.x=1,by.y=1)
+
+v=as.vector(phorsba$Statut)
+v=as.numeric(v)
+cor(as.numeric(phorsba$familles.NomAD),v)
+
+
+#Voir aussi taux de personnes hors bar�me dans chaque centre 
+
+# Nombre de respo par famille
+l = dim(phorsba)[1]
+nbrespos = 1:l
+lvr = levels(person$KPR�le)
+
+for(i in 1:l ){
+  dfnb = person[person$KPFI_SerNo==phorsba$IdFamille[i],]
+  dfnbr = dfnb[dfnb$KPR�le %in% lvr[4:5],]
+  nbrespos[i] = dim(dfnbr)[1]
+}
+
+phorsba = data.frame(phorsba,nbrespos)
+
+
+
+##############Sexe du respo principal (� rer�viser)
+
+srespos = 1:l
+lvs = levels(person$KPSexe)
+
+for(i in 1:l ){
+  dfnb = person[person$KPFI_SerNo==phorsba$IdFamille[i],]
+  dfnbr = dfnb[dfnb$KPR�le %in% lvr[4:5],]
+  
+  if( dfnbr$KPSexe[1] == lvs[2]){
+    srespos[i] = 1
+  }else{
+    srespos[i] = 0
+  }
+}
+
+phorsba = data.frame(phorsba,srespos)
+
+
+
+#############Age du respo principal
+agerespos = 1:l
+
+
+for(i in 1:l ){
+  dfnb = person[person$KPFI_SerNo==phorsba$IdFamille[i],]
+  dfnbr = dfnb[dfnb$KPR�le %in% lvr[4:5],]
+  date = dfnbr$KPDate.of.Birth[1]
+  ann = as.integer( (date/10**4))
+  age = 2016 - ann
+  agerespos[i] = age
+}
+
+phorsba = data.frame(phorsba,agerespos)
+
+
+############Situation pro du respo principal 
+############ On cr�e une autre table vu que 40% des donn�es seront perdues
+
+
+sprespo = 1:l
+lvsp = levels(person$KPSituation.professionnelle)
+idsp = 1:length(lvsp)
+#idsp = c(1:#2,14:15,5:7,11,10,3:4,9,8,12:13)
+
+for(i in 1:l ){
+  dfnb = person[person$KPFI_SerNo==phorsba$IdFamille[i],]
+  dfnbr = dfnb[dfnb$KPR�le %in% lvr[4:5],]
+  sprespo[i] = idsp[lvsp == dfnbr$KPSituation.professionnelle[1]][1]
+}
+
+phorsbab = data.frame(phorsba,sprespo)
+phorsbab = phorsbab[phorsbab$sprespo %in% 2:15,]
+
+
+
+
+
+
+#### Age Enfants :
+ld = dim(phorsbab)[1]
+nbe35 = rep(0,ld)
+nbe611 = rep(0,ld)
+nbe1215 = rep(0,ld)
+pos = 1:3
+nbe = data.frame(nbe35,nbe611,nbe1215)
+
+for (i in 1:ld){
+  dfnb = person[person$KPFI_SerNo==phorsbab$IdFamille[i],]
+  dfnbe = dfnb[!(dfnb$KPR�le %in% lvr[4:5]),]
+  if(dim(dfnbe)[1] != 0){
+    dates = dfnbe$KPDate.of.Birth
+    ages = 2016 - as.integer( (dates/10**4))
+    for (j in 1:length(ages)){
+      truc = c(ages[j] %in% c(3:5) ,ages[j] %in% c(6:11) ,ages[j] %in% c(12:15))
+      if(TRUE %in% truc){
+        position = pos[truc]
+        nbe[i,position] = nbe[i,position] + 1
+      }
+    }
+  }
+  
+} 
+
+
+phorsbab = data.frame(phorsbab,nbe)
+
+
+
+#Variables � prendre en compte : type de logement - �ge - situation professionelle - nombre de personnes dans la famille - niveau de formation (?) - b�b�s - Centre(peut �tre tr�s biais�) - d�partement ...
+
+
+########data frame principale
+
+dfanalyse = data.frame( as.numeric(phorsba$RessourcesDispoEnd) , phorsba$dummybb ,  as.numeric(phorsba$EcartBaremeEndet) , as.numeric(phorsba$NbPersonnes) , as.numeric(phorsba$nbrespos) , as.numeric(phorsba$srespos) , as.numeric(phorsba$agerespos) ,as.numeric(phorsba$familles.Logement) , as.numeric(phorsba$familles.NomAD) , as.numeric(phorsba$Statut))
+names(dfanalyse) = c("RessourcesDispoEnd" ,"dummybb" , "EcartBaremeEndet" , "NbPersonnes" , "nbrespos" , "srespos" , "agerespos" , "logement" , "depart" , "statut")
+
+
+dfanalyseb = data.frame(phorsbab$MensualitesRetenues, phorsbab$nbe35 , phorsbab$nbe611 , phorsbab$nbe1215 ,  as.numeric(phorsbab$RessourcesDispoEnd) , phorsbab$dummybb ,  as.numeric(phorsbab$EcartBaremeEndet) , as.numeric(phorsbab$NbPersonnes) , as.numeric(phorsbab$nbrespos)  , as.numeric(phorsbab$agerespos) ,as.numeric(phorsbab$familles.Logement) , as.numeric(phorsbab$familles.NomAD) ,phorsbab$sprespo, as.numeric(phorsbab$Statut))
+names(dfanalyseb) = c("dettes" ,"nbe35","nbe611" , "nbe1215" , "RessourcesDispoEnd" ,"dummybb" , "EcartBaremeEndet" , "NbPersonnes" , "nbrespos" , "agerespos" , "logement" , "depart" ,"sprespo", "statut")
+
+dfanalyseb$statut = dfanalyseb$statut - 1
+
+
+
+
+############Analyse
+
+#Heatmap de correlation 
+
+correlation = round(cor(dfanalyseb), 3)
+library(reshape2)
+melted_cormat = melt(correlation)
+
+library(ggplot2)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+
+
+# Regression 
+
+reg = lm( statut~. , data=dfanalyse )
+summary(reg)
+
+
+# logistic regression
+
+#Transformatio nen variables centr�es r�duites :
+
+scale(dfanalyseb$RessourcesDispoEnd)
+scale(dfanalyseb$EcartBaremeEndet)
+
+lreg = glm(statut ~ . ,data = dfanalyseb)
+summary(lreg)
+
+S = predict(lreg, type="response")
+Y = dfanalyseb$statut
+
+library(ROCR)
+
+pred=prediction(S,Y)
+perf=performance(pred,"tpr", "fpr")
+plot(perf,colorize = TRUE)
+abline(a=0 , b=1)
+
+
+
+
+
+
+# Selection de variables 
+library(MASS)
+stepAIC(lreg , direction="both") #Avec m�thode mixte
+
+#glm net 
+
+library(glmnet)
+
+glmmod <- glmnet(x = as.matrix(dfanalyseb[,1:13]), y=as.matrix(dfanalyseb[,14]), alpha=1)
+plot(glmmod, xvar="lambda")
+
+
+#Lasso regression 
+
+library(lars)
+fit = lars(as.matrix(dfanalyseb[,1:13]) , as.matrix(dfanalyseb[,14]) , type = "lasso")
+
+plot.lars(fit)
+
+
+
+
+
+
+
+
+# Ridge regression
+fit = lars(as.matrix(dfanalyse[,1:9]) , as.matrix(dfanalyse[,10]) , type = "stepwise")
+
+plot.lars(fit)
+
+
+# Knn Algorithm
+
+X = dfanalyseb[,1:14]
+Y = dfanalyseb[,15]
+
+library(class)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+########################## Decision Tree
+input.data=phorsb[sample(nrow(dfanalyse),5000),]
+
+library(rpart)
+library(rattle) #these libraries will be used to get a good visual plot for the decision tree model. 
+library(rpart.plot)
+library(RColorBrewer)
+
+d=rpart(statut ~ sprespo + RessourcesDispoEnd  ,data=dfanalyseb)
+fancyRpartPlot(d)
+
+
+
+
+
+
+
+##### A FAIRE : ESSAYER KNN ET RANDOM FOREST + TRACER LEUR ROC COURBE + RENDRE LES DONNEES PLUS FACILEEMNT UTILISABLE + REREVISER LE CODE 
